@@ -76,8 +76,35 @@ const DoctorProfile = () => {
                     </div>
 
                     <p className='text-gray-600 font-medium mt-4'>
-                        Appointment fee: <span className='text-gray-800'>{currency} {isEdit ? <input type='number' onChange={(e) => setProfileData(prev => ({ ...prev, fees: e.target.value }))} value={profileData.fees} /> : profileData.fees}</span>
-                    </p>
+    Appointment fee: 
+    <span className='text-gray-800'>
+        {currency} 
+        {isEdit ? (
+            <input 
+                type='number' 
+                min="0"
+                onChange={(e) => {
+                    const value = e.target.value.trim(); // Remove spaces
+
+                    // Allow empty input
+                    if (value === '') {
+                        setProfileData(prev => ({ ...prev, fees: '' }));
+                        return;
+                    }
+
+                    const numericValue = parseFloat(value);
+
+                    // Allow only 0 or positive values
+                    if (!isNaN(numericValue) && numericValue >= 0) {
+                        setProfileData(prev => ({ ...prev, fees: numericValue }));
+                    }
+                }} 
+                value={profileData.fees} 
+            />
+        ) : profileData.fees}
+    </span>
+</p>
+
 
                     <div className='flex gap-2 py-2'>
                         <p>Address:</p>

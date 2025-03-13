@@ -132,34 +132,36 @@ const updateProfile = async (req, res) => {
 
 // API to book appointment 
 const bookAppointment = async (req, res) => {
-
     try {
-
-        const { userId, docId, slotDate, slotTime } = req.body
-        const docData = await doctorModel.findById(docId).select("-password")
+        const { userId, docId, slotDate, slotTime } = req.body;
+        const docData = await doctorModel.findById(docId).select("-password");
 
         if (!docData.available) {
-            return res.json({ success: false, message: 'Doctor Not Available' })
+            return res.json({ success: false, message: "Doctor Not Available" });
         }
 
-        let slots_booked = docData.slots_booked
+        let slots_booked = docData.slots_booked || {};
 
-        // checking for slot availablity 
-        if (slots_booked[slotDate]) {
-            if (slots_booked[slotDate].includes(slotTime)) {
-                return res.json({ success: false, message: 'Slot Not Available' })
-            }
-            else {
-                slots_booked[slotDate].push(slotTime)
-            }
-        } else {
-            slots_booked[slotDate] = []
-            slots_booked[slotDate].push(slotTime)
+        // Ensure slotDate exists in slots_booked
+        if (!slots_booked[slotDate]) {
+            slots_booked[slotDate] = [];
         }
 
-        const userData = await userModel.findById(userId).select("-password")
+        // Check if slot is already booked
+        const isSlotBooked = slots_booked[slotDate].some(slot => slot.time === slotTime);
+        if (isSlotBooked) {
+            return res.json({ success: false, message: "Slot Not Available" });
+        }
 
-        delete docData.slots_booked
+        // Add booked slot
+        slots_booked[slotDate].push({ time: slotTime, userId });
+
+        // Save updated slots_booked
+        await doctorModel.findByIdAndUpdate(docId, { slots_booked });
+
+        // Save appointment data
+        const userData = await userModel.findById(userId).select("-password");
+        delete docData.slots_booked;
 
         const appointmentData = {
             userId,
@@ -169,23 +171,20 @@ const bookAppointment = async (req, res) => {
             amount: docData.fees,
             slotTime,
             slotDate,
-            date: Date.now()
-        }
+            date: Date.now(),
+        };
 
-        const newAppointment = new appointmentModel(appointmentData)
-        await newAppointment.save()
+        const newAppointment = new appointmentModel(appointmentData);
+        await newAppointment.save();
 
-        // save new slots data in docData
-        await doctorModel.findByIdAndUpdate(docId, { slots_booked })
-
-        res.json({ success: true, message: 'Appointment Booked' })
+        res.json({ success: true, message: "Appointment Booked" });
 
     } catch (error) {
-        console.log(error)
-        res.json({ success: false, message: error.message })
+        console.log(error);
+        res.json({ success: false, message: error.message });
     }
+};
 
-}
 
 // API to cancel appointment
 const cancelAppointment = async (req, res) => {
@@ -343,6 +342,30 @@ const verifyStripe = async (req, res) => {
 
 }
 
+// API to delete appointment
+const deleteAppointment = async (req, res) => {
+    try {
+        const { appointmentId } = req.params;
+
+        // Find the appointment by ID
+        const appointment = await appointmentModel.findById(appointmentId);
+
+        if (!appointment) {
+            return res.status(404).json({ success: false, message: "Appointment not found" });
+        }
+
+        // Delete the appointment
+        await appointmentModel.findByIdAndDelete(appointmentId);
+
+        res.json({ success: true, message: "Appointment deleted successfully" });
+
+    } catch (error) {
+        console.log(error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+
 export {
     loginUser,
     registerUser,
@@ -351,6 +374,7 @@ export {
     bookAppointment,
     listAppointment,
     cancelAppointment,
+    deleteAppointment, // new delete appointment API
     paymentRazorpay,
     verifyRazorpay,
     paymentStripe,

@@ -7,6 +7,8 @@ import appointmentModel from "../models/appointmentModel.js";
 import { v2 as cloudinary } from 'cloudinary'
 import stripe from "stripe";
 import razorpay from 'razorpay';
+import sendEmail from "../utils/emailService.js"; // Importing email service
+
 
 // Gateway Initialize
 const stripeInstance = new stripe(process.env.STRIPE_SECRET_KEY)
@@ -186,39 +188,6 @@ const bookAppointment = async (req, res) => {
 };
 
 
-// API to cancel appointment
-const cancelAppointment = async (req, res) => {
-    try {
-
-        const { userId, appointmentId } = req.body
-        const appointmentData = await appointmentModel.findById(appointmentId)
-
-        // verify appointment user 
-        if (appointmentData.userId !== userId) {
-            return res.json({ success: false, message: 'Unauthorized action' })
-        }
-
-        await appointmentModel.findByIdAndUpdate(appointmentId, { cancelled: true })
-
-        // releasing doctor slot 
-        const { docId, slotDate, slotTime } = appointmentData
-
-        const doctorData = await doctorModel.findById(docId)
-
-        let slots_booked = doctorData.slots_booked
-
-        slots_booked[slotDate] = slots_booked[slotDate].filter(e => e !== slotTime)
-
-        await doctorModel.findByIdAndUpdate(docId, { slots_booked })
-
-        res.json({ success: true, message: 'Appointment Cancelled' })
-
-    } catch (error) {
-        console.log(error)
-        res.json({ success: false, message: error.message })
-    }
-}
-
 // API to get user appointments for frontend my-appointments page
 const listAppointment = async (req, res) => {
     try {
@@ -266,21 +235,41 @@ const paymentRazorpay = async (req, res) => {
 // API to verify payment of razorpay
 const verifyRazorpay = async (req, res) => {
     try {
-        const { razorpay_order_id } = req.body
-        const orderInfo = await razorpayInstance.orders.fetch(razorpay_order_id)
+        const { razorpay_order_id } = req.body;
+        const orderInfo = await razorpayInstance.orders.fetch(razorpay_order_id);
 
         if (orderInfo.status === 'paid') {
-            await appointmentModel.findByIdAndUpdate(orderInfo.receipt, { payment: true })
-            res.json({ success: true, message: "Payment Successful" })
-        }
-        else {
-            res.json({ success: false, message: 'Payment Failed' })
+            await appointmentModel.findByIdAndUpdate(orderInfo.receipt, { payment: true });
+
+            // Fetch appointment & user details
+            const appointment = await appointmentModel.findById(orderInfo.receipt);
+            const user = await userModel.findById(appointment.userId);
+
+            // Send email notification
+            const emailText = `
+                Dear ${user.name},
+
+                Your payment was successful!
+                Appointment Details:
+                - Doctor: ${appointment.docData.name}
+                - Date: ${appointment.slotDate}
+                - Time: ${appointment.slotTime}
+
+                Thank you for booking with us!
+            `;
+
+            await sendEmail(user.email, "Payment Successful", emailText);
+
+            res.json({ success: true, message: "Payment Successful & Email Sent" });
+        } else {
+            res.json({ success: false, message: 'Payment Failed' });
         }
     } catch (error) {
-        console.log(error)
-        res.json({ success: false, message: error.message })
+        console.log(error);
+        res.json({ success: false, message: error.message });
     }
-}
+};
+
 
 // API to make payment of appointment using Stripe
 const paymentStripe = async (req, res) => {
@@ -323,24 +312,44 @@ const paymentStripe = async (req, res) => {
     }
 }
 
+// API to verify Stripe Payment & Send Email
 const verifyStripe = async (req, res) => {
     try {
-
-        const { appointmentId, success } = req.body
+        const { appointmentId, success } = req.body;
 
         if (success === "true") {
-            await appointmentModel.findByIdAndUpdate(appointmentId, { payment: true })
-            return res.json({ success: true, message: 'Payment Successful' })
+            await appointmentModel.findByIdAndUpdate(appointmentId, { payment: true });
+
+            // Fetch appointment & user details
+            const appointment = await appointmentModel.findById(appointmentId);
+            const user = await userModel.findById(appointment.userId);
+
+            // Send email notification
+            const emailText = `
+                Dear ${user.name},
+
+                Your payment was successful!
+                Appointment Details:
+                - Doctor: ${appointment.docData.name}
+                - Date: ${appointment.slotDate}
+                - Time: ${appointment.slotTime}
+
+                Thank you for booking with us!
+            `;
+
+            await sendEmail(user.email, "Payment Successful", emailText);
+
+            return res.json({ success: true, message: 'Payment Successful & Email Sent' });
         }
 
-        res.json({ success: false, message: 'Payment Failed' })
+        res.json({ success: false, message: 'Payment Failed' });
 
     } catch (error) {
-        console.log(error)
-        res.json({ success: false, message: error.message })
+        console.log(error);
+        res.json({ success: false, message: error.message });
     }
+};
 
-}
 
 // API to delete appointment
 const deleteAppointment = async (req, res) => {
@@ -354,14 +363,64 @@ const deleteAppointment = async (req, res) => {
             return res.status(404).json({ success: false, message: "Appointment not found" });
         }
 
-        // Delete the appointment
-        await appointmentModel.findByIdAndDelete(appointmentId);
+        // Soft delete: Mark appointment as cancelled instead of deleting it
+        appointment.cancelled = true;
+        await appointment.save();
 
-        res.json({ success: true, message: "Appointment deleted successfully" });
+        res.json({ success: true, message: "Appointment cancelled successfully (Soft Delete)" });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+};
+
+
+
+// API to cancel appointment & release slot
+const cancelAppointment = async (req, res) => {
+    try {
+        const { userId, appointmentId } = req.body;
+        const appointment = await appointmentModel.findById(appointmentId);
+
+        if (!appointment) {
+            return res.json({ success: false, message: 'Appointment not found' });
+        }
+
+        if (appointment.userId.toString() !== userId) {
+            return res.json({ success: false, message: 'Unauthorized action' });
+        }
+
+        // Mark appointment as cancelled
+        await appointmentModel.findByIdAndUpdate(appointmentId, { cancelled: true, status: "Cancelled" });
+
+        // Releasing doctor slot
+        const { docId, slotDate, slotTime } = appointment;
+        const doctor = await doctorModel.findById(docId);
+
+        if (doctor) {
+            let slots_booked = doctor.slots_booked || {};
+
+            if (slots_booked[slotDate]) {
+                console.log("Before Removing Slot:", slots_booked[slotDate]);
+
+                slots_booked[slotDate] = slots_booked[slotDate].filter(slot => 
+                    (typeof slot === "string" ? slot !== slotTime : slot.time !== slotTime)
+                );
+
+                console.log("After Removing Slot:", slots_booked[slotDate]);
+
+                await doctorModel.findByIdAndUpdate(docId, {
+                    $set: { [`slots_booked.${slotDate}`]: slots_booked[slotDate] }
+                });
+            }
+        }
+
+        res.json({ success: true, message: 'Appointment Cancelled & Slot Released' });
 
     } catch (error) {
         console.log(error);
-        res.status(500).json({ success: false, message: error.message });
+        res.json({ success: false, message: error.message });
     }
 };
 

@@ -49,23 +49,28 @@ const appointmentsDoctor = async (req, res) => {
 // API to cancel appointment for doctor panel
 const appointmentCancel = async (req, res) => {
     try {
+        const { docId, appointmentId } = req.body;
 
-        const { docId, appointmentId } = req.body
-
-        const appointmentData = await appointmentModel.findById(appointmentId)
-        if (appointmentData && appointmentData.docId === docId) {
-            await appointmentModel.findByIdAndUpdate(appointmentId, { cancelled: true })
-            return res.json({ success: true, message: 'Appointment Cancelled' })
+        const appointmentData = await appointmentModel.findById(appointmentId);
+        if (!appointmentData) {
+            return res.json({ success: false, message: 'Appointment not found' });
         }
 
-        res.json({ success: false, message: 'Appointment Cancelled' })
+        if (appointmentData.docId !== docId) {
+            return res.json({ success: false, message: 'Unauthorized action' });
+        }
+
+        await appointmentModel.findByIdAndUpdate(appointmentId, { cancelled: true });
+
+        res.json({ success: true, message: 'Appointment successfully cancelled' });
 
     } catch (error) {
-        console.log(error)
-        res.json({ success: false, message: error.message })
+        console.log(error);
+        res.json({ success: false, message: error.message });
     }
+};
 
-}
+
 
 // API to mark appointment completed for doctor panel
 const appointmentComplete = async (req, res) => {
@@ -152,43 +157,39 @@ const updateDoctorProfile = async (req, res) => {
 // API to get dashboard data for doctor panel
 const doctorDashboard = async (req, res) => {
     try {
+        const { docId } = req.body;
 
-        const { docId } = req.body
+        // Fetch all appointments for the doctor
+        const appointments = await appointmentModel.find({ docId });
 
-        const appointments = await appointmentModel.find({ docId })
+        // Filter out cancelled appointments for earnings & total count
+        const validAppointments = appointments.filter(appt => !appt.cancelled);
 
-        let earnings = 0
-
-        appointments.map((item) => {
+        let earnings = 0;
+        validAppointments.forEach((item) => {
             if (item.isCompleted || item.payment) {
-                earnings += item.amount
+                earnings += item.amount;
             }
-        })
+        });
 
-        let patients = []
-
-        appointments.map((item) => {
-            if (!patients.includes(item.userId)) {
-                patients.push(item.userId)
-            }
-        })
-
-
+        let patients = new Set(validAppointments.map(appt => appt.userId)).size;
 
         const dashData = {
             earnings,
-            appointments: appointments.length,
-            patients: patients.length,
-            latestAppointments: appointments.reverse()
-        }
+            appointments: validAppointments.length, // Count only non-cancelled appointments
+            patients,
+            latestAppointments: appointments.slice(-10) // Show last 10 (including cancelled)
+        };
 
-        res.json({ success: true, dashData })
+        res.json({ success: true, dashData });
 
     } catch (error) {
-        console.log(error)
-        res.json({ success: false, message: error.message })
+        console.log(error);
+        res.status(500).json({ success: false, message: error.message });
     }
-}
+};
+
+
 
 export {
     loginDoctor,

@@ -7,27 +7,28 @@ import { toast } from 'react-toastify';
 const MyAppointments = () => {
     const { backendUrl, token } = useContext(AppContext);
     const navigate = useNavigate();
-
     const [appointments, setAppointments] = useState([]);
 
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-    // ✅ Fixed month issue (subtracting 1 for correct index)
+    // Format slot date correctly
     const slotDateFormat = (slotDate) => {
         const dateArray = slotDate.split('_');
         return `${dateArray[0]} ${months[Number(dateArray[1]) - 1]} ${dateArray[2]}`;
     };
 
+    // Fetch user appointments (backend has all, frontend shows only 10)
     const getUserAppointments = async () => {
         try {
             const { data } = await axios.get(`${backendUrl}/api/user/appointments`, { headers: { token } });
-            setAppointments(data.appointments.reverse());
+            setAppointments(data.appointments.reverse().slice(0, 10)); // Show only the latest 10 appointments
         } catch (error) {
             console.error(error);
             toast.error("Failed to fetch appointments");
         }
     };
 
+    // Cancel an appointment
     const cancelAppointment = async (appointmentId) => {
         try {
             const { data } = await axios.post(
@@ -47,21 +48,7 @@ const MyAppointments = () => {
         }
     };
 
-    const deleteAppointment = async (appointmentId) => {
-        try {
-            const { data } = await axios.delete(`${backendUrl}/api/user/delete-appointment/${appointmentId}`, { headers: { token } });
-            if (data.success) {
-                toast.success("Appointment deleted successfully");
-                getUserAppointments();
-            } else {
-                toast.error("Failed to delete appointment");
-            }
-        } catch (error) {
-            console.error(error);
-            toast.error("Something went wrong while deleting");
-        }
-    };
-
+    // Handle payment
     const handlePayment = async (appointment) => {
         try {
             const { data } = await axios.post(
@@ -72,7 +59,7 @@ const MyAppointments = () => {
 
             if (data.success) {
                 toast.success("Redirecting to payment gateway...");
-                window.location.href = data.payment_url; // Example for Razorpay
+                window.location.href = data.payment_url; // Redirect to payment
             } else {
                 toast.error("Payment initiation failed.");
             }
@@ -106,33 +93,25 @@ const MyAppointments = () => {
                             <p className='mt-1'><span className='text-sm text-[#3C3C3C] font-medium'>Date & Time:</span> {slotDateFormat(item.slotDate)} | {item.slotTime}</p>
                         </div>
                         <div className='flex flex-col gap-2 justify-end text-sm text-center'>
+                            {/* If appointment is cancelled */}
                             {item.cancelled && !item.isCompleted && (
-                                <>
-                                    <button className='sm:min-w-48 py-2 border border-red-500 rounded text-red-500'>
-                                        Appointment cancelled
-                                    </button>
-                                    <button onClick={() => deleteAppointment(item._id)} className='text-[#696969] sm:min-w-48 py-2 border rounded hover:bg-red-600 hover:text-white transition-all duration-300'>
-                                        Delete appointment
-                                    </button>
-                                </>
+                                <button className='sm:min-w-48 py-2 border border-red-500 rounded text-red-500'>
+                                    Appointment cancelled
+                                </button>
                             )}
+
+                            {/* If appointment is completed */}
                             {item.isCompleted && (
-                                <>
-                                    <button className='sm:min-w-48 py-2 border border-green-500 rounded text-green-500'>
-                                        Completed
-                                    </button>
-                                    <button onClick={() => deleteAppointment(item._id)} className='text-[#696969] sm:min-w-48 py-2 border rounded hover:bg-red-600 hover:text-white transition-all duration-300'>
-                                        Delete appointment
-                                    </button>
-                                </>
+                                <button className='sm:min-w-48 py-2 border border-green-500 rounded text-green-500'>
+                                    Completed
+                                </button>
                             )}
+
+                            {/* If appointment is neither cancelled nor completed */}
                             {!item.cancelled && !item.isCompleted && (
                                 <>
                                     <button onClick={() => cancelAppointment(item._id)} className='text-[#696969] sm:min-w-48 py-2 border rounded hover:bg-red-600 hover:text-white transition-all duration-300'>
                                         Cancel appointment
-                                    </button>
-                                    <button onClick={() => deleteAppointment(item._id)} className='text-[#696969] sm:min-w-48 py-2 border rounded hover:bg-red-600 hover:text-white transition-all duration-300'>
-                                        Delete appointment
                                     </button>
                                     {!item.isPaid && (
                                         <button onClick={() => handlePayment(item)} className='text-white bg-blue-500 sm:min-w-48 py-2 rounded hover:bg-blue-700 transition-all duration-300'>

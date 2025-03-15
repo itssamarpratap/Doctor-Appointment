@@ -63,4 +63,4 @@ http://localhost:5173
 This project is Open Source. Feel free to use and improve it!
 
 📧 Contact
-For queries, reach out at: harshraj88253@gmail.com
+For queries, reach out at: samarpratap0629@gmail.com
